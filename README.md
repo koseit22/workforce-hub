@@ -39,14 +39,35 @@
 | 開発環境 | Docker Compose |
 | グラフ | Recharts |
 
-```text
-React (client)
-   │ HTTP + Bearer JWT
-   ▼
-Express REST API (server)
-   │ SQL
-   ▼
-MySQL 8.4 (Docker)
+### 開発時の構成
+
+Docker ComposeはSQLそのものを管理するものではなく、ローカルPCで全員が同じMySQL環境を再現するための仕組みです。`db/init.sql` には、テーブルと初期データの定義を置いています。
+
+```mermaid
+flowchart TB
+  subgraph PC[ローカルPC：開発環境]
+    UI[画面<br/>React / Vite]
+    API[API<br/>Express]
+    Docker[Docker Compose]
+    DB[(MySQL コンテナ)]
+    SQL[db/init.sql<br/>テーブル・初期データ]
+
+    UI -->|HTTP + JWT| API
+    API -->|SQL| DB
+    Docker --> DB
+    SQL --> DB
+  end
+```
+
+### 本番公開時の構成
+
+フロントエンドはVercel、APIとMySQLはRailwayへ分けて公開しています。ブラウザからDBへ直接は接続せず、必ずAPIを経由させます。
+
+```mermaid
+flowchart LR
+  User[利用者のブラウザ] -->|HTTPS| Vercel[Vercel<br/>React画面]
+  Vercel -->|HTTPS + JWT| API[Railway<br/>Express API]
+  API -->|プライベート接続| DB[(Railway MySQL)]
 ```
 
 ## API・データベースで意識したこと
