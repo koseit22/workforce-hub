@@ -1,0 +1,8 @@
+node_modules/
+client/node_modules/
+server/node_modules/
+.npm-cache/
+client/dist/
+server/.env
+*.tsbuildinfo
+.DS_Store

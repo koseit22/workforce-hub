@@ -1,0 +1,58 @@
+import { FormEvent, useEffect, useMemo, useState } from "react";
+import { Bar, BarChart, CartesianGrid, Legend, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
+import { api } from "./api";
+import type { Project, Shift, Summary, Timesheet, User } from "./types";
+
+type Tab = "dashboard" | "timesheets" | "shifts";
+const today = new Date().toISOString().slice(0, 10);
+const statusLabel: Record<string, string> = { submitted: "承認待ち", approved: "承認済み", rejected: "差し戻し", requested: "申請中" };
+
+export default function App() {
+  const [token, setToken] = useState(() => localStorage.getItem("workforce-token") ?? "");
+  const [user, setUser] = useState<User | null>(() => { const saved = localStorage.getItem("workforce-user"); return saved ? JSON.parse(saved) : null; });
+  const [tab, setTab] = useState<Tab>("dashboard");
+  const [projects, setProjects] = useState<Project[]>([]);
+  const [timesheets, setTimesheets] = useState<Timesheet[]>([]);
+  const [shifts, setShifts] = useState<Shift[]>([]);
+  const [summary, setSummary] = useState<Summary | null>(null);
+  const [notice, setNotice] = useState("");
+  const manager = user?.role === "manager" || user?.role === "admin";
+
+  const load = async () => {
+    if (!token || !user) return;
+    try {
+      const [nextProjects, nextTimesheets, nextShifts, nextSummary] = await Promise.all([
+        api<Project[]>("/api/projects", token), api<Timesheet[]>("/api/timesheets", token), api<Shift[]>("/api/shifts", token),
+        manager ? api<Summary>("/api/dashboard/summary", token) : Promise.resolve(null),
+      ]);
+      setProjects(nextProjects); setTimesheets(nextTimesheets); setShifts(nextShifts); setSummary(nextSummary);
+    } catch (error) { setNotice(error instanceof Error ? error.message : "データを取得できませんでした。"); }
+  };
+  useEffect(() => { void load(); }, [token, user?.role]);
+  const approvedHours = useMemo(() => timesheets.filter((item) => item.status === "approved").reduce((sum, item) => sum + Number(item.hours), 0), [timesheets]);
+  const pendingCount = timesheets.filter((item) => item.status === "submitted").length + shifts.filter((item) => item.status === "requested").length;
+
+  async function login(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault(); const form = new FormData(event.currentTarget);
+    try { const result = await api<{ token: string; user: User }>("/api/auth/login", "", { method: "POST", body: JSON.stringify({ email: form.get("email"), password: form.get("password") }) }); setToken(result.token); setUser(result.user); localStorage.setItem("workforce-token", result.token); localStorage.setItem("workforce-user", JSON.stringify(result.user)); setNotice(""); }
+    catch (error) { setNotice(error instanceof Error ? error.message : "ログインできませんでした。"); }
+  }
+  function logout() { localStorage.removeItem("workforce-token"); localStorage.removeItem("workforce-user"); setToken(""); setUser(null); setProjects([]); }
+  async function addTimesheet(event: FormEvent<HTMLFormElement>) { event.preventDefault(); const form = new FormData(event.currentTarget); try { await api("/api/timesheets", token, { method: "POST", body: JSON.stringify({ projectId: Number(form.get("projectId")), workDate: form.get("workDate"), hours: Number(form.get("hours")), description: form.get("description") }) }); event.currentTarget.reset(); setNotice("工数を提出しました。管理者の承認待ちです。"); await load(); } catch (error) { setNotice(error instanceof Error ? error.message : "保存できませんでした。"); } }
+  async function addShift(event: FormEvent<HTMLFormElement>) { event.preventDefault(); const form = new FormData(event.currentTarget); try { await api("/api/shifts", token, { method: "POST", body: JSON.stringify({ shiftDate: form.get("shiftDate"), startTime: form.get("startTime"), endTime: form.get("endTime") }) }); event.currentTarget.reset(); setNotice("シフト希望を申請しました。"); await load(); } catch (error) { setNotice(error instanceof Error ? error.message : "保存できませんでした。"); } }
+  async function approve(kind: "timesheets" | "shifts", id: number, action: "approved" | "rejected") { try { await api(`/api/${kind}/${id}/approve`, token, { method: "PATCH", body: JSON.stringify({ action }) }); setNotice(action === "approved" ? "承認しました。" : "差し戻しました。"); await load(); } catch (error) { setNotice(error instanceof Error ? error.message : "更新できませんでした。"); } }
+
+  if (!user) return <main className="login-shell"><section className="login-card"><div className="brand-mark">WH</div><p className="eyebrow">WORKFORCE HUB</p><h1>チームの稼働を、<br />ひとつの画面に。</h1><p className="muted">シフト・工数・承認状況をリアルタイムに把握する業務管理システムです。</p><form onSubmit={login}><label>メールアドレス<input name="email" type="email" defaultValue="manager@example.com" required /></label><label>パスワード<input name="password" type="password" defaultValue="demo1234" required /></label><button className="primary" type="submit">デモにログイン</button></form><div className="demo-note">管理者: manager@example.com / demo1234<br />メンバー: member@example.com / demo1234</div>{notice && <p className="notice error">{notice}</p>}</section></main>;
+
+  return <div className="app-shell"><aside><div className="logo"><span>WH</span>Workforce Hub</div><p className="workspace">OPERATIONS CONSOLE</p>{(["dashboard", "timesheets", "shifts"] as Tab[]).map((item) => <button key={item} onClick={() => setTab(item)} className={tab === item ? "nav active" : "nav"}>{item === "dashboard" ? "ダッシュボード" : item === "timesheets" ? "工数管理" : "シフト管理"}</button>)}<div className="side-user"><b>{user.name}</b><small>{user.role === "manager" ? "マネージャー" : "メンバー"}</small><button onClick={logout}>ログアウト</button></div></aside><main className="content"><header><div><p className="eyebrow">{manager ? "MANAGER VIEW" : "MY WORKSPACE"}</p><h1>{tab === "dashboard" ? "稼働ダッシュボード" : tab === "timesheets" ? "工数管理" : "シフト管理"}</h1></div><div className="pending">要対応 <strong>{manager ? (summary?.pendingApprovals ?? pendingCount) : pendingCount}</strong>件</div></header>{notice && <p className="notice">{notice}</p>}
+    {tab === "dashboard" && <Dashboard manager={manager} summary={summary} approvedHours={approvedHours} timesheets={timesheets} projects={projects} />}
+    {tab === "timesheets" && <TimesheetView projects={projects} items={timesheets} manager={manager} onSubmit={addTimesheet} onApprove={(id, action) => approve("timesheets", id, action)} />}
+    {tab === "shifts" && <ShiftView items={shifts} manager={manager} onSubmit={addShift} onApprove={(id, action) => approve("shifts", id, action)} />}
+  </main></div>;
+}
+
+function Dashboard({ manager, summary, approvedHours, timesheets, projects }: { manager: boolean; summary: Summary | null; approvedHours: number; timesheets: Timesheet[]; projects: Project[] }) { const chart = summary?.projectHours ?? []; return <><section className="metrics"><Metric label={manager ? "承認済み総工数" : "今月の承認済み工数"} value={`${approvedHours.toFixed(1)} h`} detail="実績として計上済み" /><Metric label="承認待ち" value={`${manager ? summary?.pendingApprovals ?? 0 : timesheets.filter((x) => x.status === "submitted").length} 件`} detail={manager ? "対応が必要な申請" : "提出済みの工数"} /><Metric label="進行中プロジェクト" value={`${projects.filter((p) => p.status === "active").length} 件`} detail="登録プロジェクトから集計" /></section><section className="panel chart-panel"><div className="panel-heading"><div><p className="eyebrow">PROJECT UTILIZATION</p><h2>プロジェクト別の消化工数</h2></div><span className="legend-text">予算 / 実績（承認済み）</span></div>{manager ? <div className="chart"><ResponsiveContainer width="100%" height={300}><BarChart data={chart}><CartesianGrid vertical={false} stroke="#e3ebf4" /><XAxis dataKey="name" tick={{ fontSize: 12 }} /><YAxis /><Tooltip /><Legend /><Bar dataKey="budgetHours" name="予算時間" fill="#b9c8d9" radius={[6, 6, 0, 0]} /><Bar dataKey="actualHours" name="実績時間" fill="#1677ff" radius={[6, 6, 0, 0]} /></BarChart></ResponsiveContainer></div> : <div className="empty">管理者アカウントでは、プロジェクト別・メンバー別の集計を確認できます。</div>}</section></> }
+function Metric({ label, value, detail }: { label: string; value: string; detail: string }) { return <article className="metric"><p>{label}</p><strong>{value}</strong><small>{detail}</small></article>; }
+function TimesheetView({ projects, items, manager, onSubmit, onApprove }: { projects: Project[]; items: Timesheet[]; manager: boolean; onSubmit: (event: FormEvent<HTMLFormElement>) => void; onApprove: (id: number, action: "approved" | "rejected") => void }) { return <div className="two-column"><section className="panel form-panel"><p className="eyebrow">NEW TIMESHEET</p><h2>工数を提出</h2><form onSubmit={onSubmit}><label>プロジェクト<select name="projectId" required>{projects.filter((p) => p.status === "active").map((p) => <option key={p.id} value={p.id}>{p.name} / {p.clientName}</option>)}</select></label><label>作業日<input name="workDate" type="date" defaultValue={today} required /></label><label>作業時間（h）<input name="hours" type="number" min="0.5" max="24" step="0.5" placeholder="例: 3.5" required /></label><label>作業内容<textarea name="description" minLength={3} placeholder="実施内容・成果を記入" required /></label><button className="primary">提出する</button></form></section><section className="panel list-panel"><div className="panel-heading"><div><p className="eyebrow">TIMESHEET LIST</p><h2>{manager ? "全メンバーの申請" : "自分の提出履歴"}</h2></div></div><Table items={items} kind="timesheet" manager={manager} onApprove={onApprove} /></section></div>; }
+function ShiftView({ items, manager, onSubmit, onApprove }: { items: Shift[]; manager: boolean; onSubmit: (event: FormEvent<HTMLFormElement>) => void; onApprove: (id: number, action: "approved" | "rejected") => void }) { return <div className="two-column"><section className="panel form-panel"><p className="eyebrow">NEW SHIFT REQUEST</p><h2>シフト希望を申請</h2><form onSubmit={onSubmit}><label>勤務日<input name="shiftDate" type="date" defaultValue={today} required /></label><label>開始時刻<input name="startTime" type="time" defaultValue="09:00" required /></label><label>終了時刻<input name="endTime" type="time" defaultValue="18:00" required /></label><button className="primary">シフトを申請</button></form></section><section className="panel list-panel"><div className="panel-heading"><div><p className="eyebrow">SHIFT REQUESTS</p><h2>{manager ? "チームのシフト申請" : "自分のシフト申請"}</h2></div></div><Table items={items} kind="shift" manager={manager} onApprove={onApprove} /></section></div>; }
+function Table({ items, kind, manager, onApprove }: { items: (Timesheet | Shift)[]; kind: "timesheet" | "shift"; manager: boolean; onApprove: (id: number, action: "approved" | "rejected") => void }) { if (!items.length) return <div className="empty">まだ申請はありません。</div>; return <div className="table-wrap"><table><thead><tr><th>日付</th><th>{manager ? "メンバー" : kind === "timesheet" ? "案件" : "勤務時間"}</th><th>{kind === "timesheet" ? "内容 / 時間" : "勤務時間"}</th><th>ステータス</th>{manager && <th>操作</th>}</tr></thead><tbody>{items.map((item) => { const isTime = kind === "timesheet"; const status = item.status; return <tr key={item.id}><td>{isTime ? (item as Timesheet).workDate : (item as Shift).shiftDate}</td><td>{manager ? item.memberName : isTime ? (item as Timesheet).projectName : `${(item as Shift).startTime} - ${(item as Shift).endTime}`}</td><td>{isTime ? <><span>{(item as Timesheet).description}</span><b>{(item as Timesheet).hours} h</b></> : `${(item as Shift).startTime} - ${(item as Shift).endTime}`}</td><td><span className={`status ${status}`}>{statusLabel[status]}</span></td>{manager && <td>{(status === "submitted" || status === "requested") && <div className="actions"><button onClick={() => onApprove(item.id, "approved")}>承認</button><button className="reject" onClick={() => onApprove(item.id, "rejected")}>差戻</button></div>}</td>}</tr>; })}</tbody></table></div>; }
