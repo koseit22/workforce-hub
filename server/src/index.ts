@@ -41,6 +41,14 @@ app.get("/api/projects", authenticate, async (_req, res) => {
   res.json(rows);
 });
 
+app.post("/api/projects", authenticate, managerOnly, async (req, res) => {
+  const parsed = z.object({ name: z.string().trim().min(2).max(150), clientName: z.string().trim().min(2).max(150), budgetHours: z.number().positive().max(100000) }).safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ message: "プロジェクト名・取引先・予算時間を確認してください。" });
+  const project = parsed.data;
+  const [result] = await db.execute(`INSERT INTO projects (name, client_name, budget_hours, status) VALUES (?, ?, ?, 'active')`, [project.name, project.clientName, project.budgetHours]);
+  res.status(201).json({ id: (result as { insertId: number }).insertId });
+});
+
 app.get("/api/timesheets", authenticate, async (req: AuthRequest, res) => {
   const [rows] = await db.query<RowDataPacket[]>(`SELECT t.id, t.work_date AS workDate, t.hours, t.description, t.status, p.name AS projectName, u.name AS memberName FROM timesheets t JOIN projects p ON p.id=t.project_id JOIN users u ON u.id=t.user_id WHERE (? IN ('manager','admin') OR t.user_id=?) ORDER BY t.work_date DESC`, [req.user!.role, req.user!.id]);
   res.json(rows);
