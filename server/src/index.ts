@@ -69,7 +69,7 @@ app.delete("/api/projects/:id", authenticate, managerOnly, async (req, res) => {
 });
 
 app.get("/api/timesheets", authenticate, async (req: AuthRequest, res) => {
-  const [rows] = await db.query<RowDataPacket[]>(`SELECT t.id, t.work_date AS workDate, t.hours, t.description, t.status, p.name AS projectName, u.name AS memberName FROM timesheets t JOIN projects p ON p.id=t.project_id JOIN users u ON u.id=t.user_id WHERE (? IN ('manager','admin') OR t.user_id=?) ORDER BY t.work_date DESC`, [req.user!.role, req.user!.id]);
+  const [rows] = await db.query<RowDataPacket[]>(`SELECT t.id, t.project_id AS projectId, t.work_date AS workDate, t.hours, t.description, t.status, p.name AS projectName, u.name AS memberName FROM timesheets t JOIN projects p ON p.id=t.project_id JOIN users u ON u.id=t.user_id WHERE (? IN ('manager','admin') OR t.user_id=?) ORDER BY t.work_date DESC`, [req.user!.role, req.user!.id]);
   res.json(rows);
 });
 
@@ -102,6 +102,16 @@ app.post("/api/timesheets", authenticate, async (req: AuthRequest, res) => {
   const id = (result as { insertId: number }).insertId;
   await db.execute(`INSERT INTO approval_logs (timesheet_id, actor_id, action, comment) VALUES (?, ?, 'submitted', '工数を提出')`, [id, req.user!.id]);
   res.status(201).json({ id });
+});
+
+app.patch("/api/timesheets/:id", authenticate, async (req: AuthRequest, res) => {
+  const parsed = z.object({ projectId: z.number().int().positive(), workDate: z.string().date(), hours: z.number().positive().max(24), description: z.string().min(3).max(500) }).safeParse(req.body);
+  const id = Number(req.params.id);
+  if (!parsed.success || !Number.isInteger(id)) return res.status(400).json({ message: "入力内容を確認してください。" });
+  const [result] = await db.execute(`UPDATE timesheets SET project_id=?, work_date=?, hours=?, description=?, status='submitted', approver_id=NULL WHERE id=? AND (? IN ('manager','admin') OR user_id=?)`, [parsed.data.projectId, parsed.data.workDate, parsed.data.hours, parsed.data.description, id, req.user!.role, req.user!.id]);
+  if ((result as { affectedRows: number }).affectedRows === 0) return res.status(404).json({ message: "編集できる作業記録が見つかりません。" });
+  await db.execute(`INSERT INTO approval_logs (timesheet_id, actor_id, action, comment) VALUES (?, ?, 'submitted', '作業記録を編集して再提出')`, [id, req.user!.id]);
+  res.json({ ok: true });
 });
 
 app.patch("/api/timesheets/:id/approve", authenticate, managerOnly, async (req: AuthRequest, res) => {
