@@ -58,6 +58,16 @@ app.patch("/api/projects/:id", authenticate, managerOnly, async (req, res) => {
   res.json({ ok: true });
 });
 
+app.delete("/api/projects/:id", authenticate, managerOnly, async (req, res) => {
+  const id = Number(req.params.id);
+  if (!Number.isInteger(id)) return res.status(400).json({ message: "プロジェクトを確認してください。" });
+  const [usage] = await db.query<RowDataPacket[]>(`SELECT COUNT(*) AS count FROM timesheets WHERE project_id=?`, [id]);
+  if (Number(usage[0].count) > 0) return res.status(409).json({ message: "作業記録があるプロジェクトは削除できません。状態を「完了」に変更してください。" });
+  const [result] = await db.execute(`DELETE FROM projects WHERE id=?`, [id]);
+  if ((result as { affectedRows: number }).affectedRows === 0) return res.status(404).json({ message: "プロジェクトが見つかりません。" });
+  res.json({ ok: true });
+});
+
 app.get("/api/timesheets", authenticate, async (req: AuthRequest, res) => {
   const [rows] = await db.query<RowDataPacket[]>(`SELECT t.id, t.work_date AS workDate, t.hours, t.description, t.status, p.name AS projectName, u.name AS memberName FROM timesheets t JOIN projects p ON p.id=t.project_id JOIN users u ON u.id=t.user_id WHERE (? IN ('manager','admin') OR t.user_id=?) ORDER BY t.work_date DESC`, [req.user!.role, req.user!.id]);
   res.json(rows);
