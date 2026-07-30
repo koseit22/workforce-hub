@@ -6,6 +6,7 @@ import jwt from "jsonwebtoken";
 import { RowDataPacket } from "mysql2";
 import { z } from "zod";
 import { db } from "./db.js";
+import { initializeDatabase } from "./bootstrap.js";
 
 type AuthUser = { id: number; name: string; role: "member" | "manager" | "admin" };
 type AuthRequest = Request & { user?: AuthUser };
@@ -131,4 +132,5 @@ app.get("/api/dashboard/summary", authenticate, managerOnly, async (_req, res) =
 });
 
 app.use((error: Error, _req: Request, res: Response, _next: NextFunction) => { console.error(error); res.status(500).json({ message: "サーバーエラーが発生しました。" }); });
-app.listen(Number(process.env.PORT ?? 3001), () => console.log("API listening on http://localhost:3001"));
+await initializeDatabase();
+app.listen(Number(process.env.PORT ?? 3001), () => console.log("API listening"));
