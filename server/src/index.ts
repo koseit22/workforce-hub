@@ -37,16 +37,25 @@ app.post("/api/auth/login", async (req, res) => {
 });
 
 app.get("/api/projects", authenticate, async (_req, res) => {
-  const [rows] = await db.query<RowDataPacket[]>(`SELECT id, name, client_name AS clientName, budget_hours AS budgetHours, status FROM projects ORDER BY status, name`);
+  const [rows] = await db.query<RowDataPacket[]>(`SELECT id, name, client_name AS clientName, budget_hours AS budgetHours, hourly_rate AS hourlyRate, status FROM projects ORDER BY status, name`);
   res.json(rows);
 });
 
 app.post("/api/projects", authenticate, managerOnly, async (req, res) => {
-  const parsed = z.object({ name: z.string().trim().min(2).max(150), clientName: z.string().trim().min(2).max(150), budgetHours: z.number().positive().max(100000) }).safeParse(req.body);
+  const parsed = z.object({ name: z.string().trim().min(2).max(150), clientName: z.string().trim().min(2).max(150), budgetHours: z.number().positive().max(100000), hourlyRate: z.number().nonnegative().max(100000).nullable().optional() }).safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ message: "プロジェクト名・取引先・予算時間を確認してください。" });
   const project = parsed.data;
-  const [result] = await db.execute(`INSERT INTO projects (name, client_name, budget_hours, status) VALUES (?, ?, ?, 'active')`, [project.name, project.clientName, project.budgetHours]);
+  const [result] = await db.execute(`INSERT INTO projects (name, client_name, budget_hours, hourly_rate, status) VALUES (?, ?, ?, ?, 'active')`, [project.name, project.clientName, project.budgetHours, project.hourlyRate ?? null]);
   res.status(201).json({ id: (result as { insertId: number }).insertId });
+});
+
+app.patch("/api/projects/:id", authenticate, managerOnly, async (req, res) => {
+  const parsed = z.object({ name: z.string().trim().min(2).max(150), clientName: z.string().trim().min(2).max(150), budgetHours: z.number().positive().max(100000), hourlyRate: z.number().nonnegative().max(100000).nullable(), status: z.enum(["active", "paused", "completed"]) }).safeParse(req.body);
+  const id = Number(req.params.id);
+  if (!parsed.success || !Number.isInteger(id)) return res.status(400).json({ message: "プロジェクトの入力内容を確認してください。" });
+  const project = parsed.data;
+  await db.execute(`UPDATE projects SET name=?, client_name=?, budget_hours=?, hourly_rate=?, status=? WHERE id=?`, [project.name, project.clientName, project.budgetHours, project.hourlyRate, project.status, id]);
+  res.json({ ok: true });
 });
 
 app.get("/api/timesheets", authenticate, async (req: AuthRequest, res) => {

@@ -47,6 +47,12 @@ npm run dev:client
 
 ブラウザで `http://localhost:5173` を開きます。
 
+既に起動済みのデータベースへ案件単価の機能を追加する場合は、次を一度だけ実行します。
+
+```bash
+docker compose exec -T mysql mysql -uworkforce -pworkforce_pass workforce_hub < db/migrations/001_add_project_hourly_rate.sql
+```
+
 | 権限 | メールアドレス | パスワード |
 | --- | --- | --- |
 | 管理者 | `manager@example.com` | `demo1234` |

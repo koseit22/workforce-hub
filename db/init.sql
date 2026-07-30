@@ -20,6 +20,7 @@ CREATE TABLE projects (
   name VARCHAR(150) NOT NULL,
   client_name VARCHAR(150) NOT NULL,
   budget_hours DECIMAL(8,2) NOT NULL DEFAULT 0,
+  hourly_rate DECIMAL(10,2) NULL,
   status ENUM('active', 'paused', 'completed') NOT NULL DEFAULT 'active',
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
@@ -64,7 +65,7 @@ CREATE TABLE approval_logs (
 );
 
 INSERT INTO roles (name) VALUES ('member'), ('manager'), ('admin');
-INSERT INTO projects (name, client_name, budget_hours, status) VALUES
-  ('勤怠連携自動化', '株式会社サンプル', 120, 'active'),
-  ('RPA 運用改善', '社内業務部', 80, 'active'),
-  ('データ移行支援', '株式会社テスト', 60, 'paused');
+INSERT INTO projects (name, client_name, budget_hours, hourly_rate, status) VALUES
+  ('勤怠連携自動化', '株式会社サンプル', 120, 1800, 'active'),
+  ('RPA 運用改善', '社内業務部', 80, 1500, 'active'),
+  ('データ移行支援', '株式会社テスト', 60, 2000, 'paused');
